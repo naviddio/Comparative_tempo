@@ -1,0 +1,731 @@
+---
+title: "Comparative analyses of acorn ant ultradian rhythms"
+author: "Doering, Prebus, Suresh, Greer, Bowden, Linksvayer"
+date: "9/29/2024"
+output: 
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+set.seed(9) # set the rng for reproducibility
+setwd("C:/Users/naviddio/OneDrive/CA_PCM/compile/data")
+
+library(nlme)
+library(stringr)
+library(ape)
+library(geiger)
+library(phytools)
+library(dplyr)
+library(picante)
+library(adephylo)
+library(ade4)
+library(phylobase)
+library(dispRity)
+library(sensiPhy)
+library(gdata)
+library(plotrix)
+```
+
+## Import data
+```{r, echo=TRUE, error=FALSE, warning=FALSE}
+CR <- read.csv("Table_S1_collective_activity.csv", header=T)
+IR <- read.csv("Table_S2_individual_activity.csv", header=T)
+EX <- read.csv("Table_S3_individual_velocity.csv", header=T)
+CR_deconstruct <- read.csv("Table_S9_collective_activity_disassembly.csv", header=T)
+IR_deconstruct <- read.csv("Table_S10_individual_activity_disassembly.csv", header=T)
+```
+
+## Interspecific differences
+
+Here, we use LME models to assess interspecific differences in the  five behavioral traits considered for this study. Colony ID (or Colony of origin for individual ants) is set as a random effect in all of the models. The model coefficient estimates are used to obtain tip-values for each of the species in our phylogenetic analyses.  
+```{r, echo=TRUE, error=FALSE, warning=FALSE}
+m1 <- lme(Dominant_Period ~ Species, random=~1|Colony, data=CR) # model for collective-level period
+anova(m1)
+
+period.CR=data.frame(summary(m1)$tTable)
+period.CR$Value[2:length(period.CR$Value)]=period.CR$Value[2:length(period.CR$Value)]+period.CR$Value[1]
+row.names(period.CR)=sort(unique(CR$Species))
+
+m1 <- lme(cf_wavelet ~ Species, random=~1|Colony, data=CR) # model for collective-level rhythmicity
+anova(m1)
+
+wavelet.CR=data.frame(summary(m1)$tTable)
+wavelet.CR$Value[2:length(wavelet.CR$Value)]=wavelet.CR$Value[2:length(wavelet.CR$Value)]+wavelet.CR$Value[1]
+row.names(wavelet.CR)=sort(unique(CR$Species))
+
+m1 <- lme(Dominant_Period ~ Species, random=~1|Colony, data=IR) # model for individual-level period
+anova(m1)
+
+period.IR=data.frame(summary(m1)$tTable)
+period.IR$Value[2:length(period.IR$Value)]=period.IR$Value[2:length(period.IR$Value)]+period.IR$Value[1]
+row.names(period.IR)=sort(unique(CR$Species))
+
+m1 <- lme(cf_wavelet ~ Species, random=~1|Colony, data=IR) # model for individual-level rhythmicity
+anova(m1)
+
+wavelet.IR=data.frame(summary(m1)$tTable)
+wavelet.IR$Value[2:length(wavelet.IR$Value)]=wavelet.IR$Value[2:length(wavelet.IR$Value)]+wavelet.IR$Value[1]
+row.names(wavelet.IR)=sort(unique(CR$Species))
+
+m1 <- lme(Mean_moving_velocity ~ Species, random=~1|Colony, data=EX) # model for individual-level velocity
+anova(m1)
+
+velocity.EX=data.frame(summary(m1)$tTable)
+velocity.EX$Value[2:length(velocity.EX$Value)]=velocity.EX$Value[2:length(velocity.EX$Value)]+velocity.EX$Value[1]
+row.names(velocity.EX)=sort(unique(CR$Species))
+```
+
+## Phylogenetic regression 
+
+This code section runs PGLS and a sensitivity analysis to test for correlations between analogous pairs of individual-level and collective-level traits.  
+```{r, echo=TRUE, error=FALSE, warning=FALSE}
+t<- read.nexus("doering_25t_divergence_names.tre") # read tree file
+
+nc <- name.check(t, wavelet.CR)
+
+pruned <- drop.tip(t, nc$tree_not_data)
+pruned<-force.ultrametric(pruned) # The numerical precision of the branch lengths in our phylogeny result in it not being recognized as an ultrametric tree by R. We therefore apply the force.ultrametric function to ensure that our tree is treated as ultrametric.  
+
+CR$Dominant_Period<-CR$Dominant_Period_trim # ensure that the trait values for the shorter collective-level time series are used to match the length of the individual-level time series  
+CR$cf_wavelet<-CR$cf_wavelet_trim
+
+m1 <- lme(Dominant_Period ~ Species, random=~1|Colony, data=CR)
+
+period.CR=data.frame(summary(m1)$tTable)
+period.CR$Value[2:length(period.CR$Value)]=period.CR$Value[2:length(period.CR$Value)]+period.CR$Value[1]
+row.names(period.CR)=sort(unique(CR$Species))
+
+m1 <- lme(cf_wavelet ~ Species, random=~1|Colony, data=CR)
+
+wavelet.CR=data.frame(summary(m1)$tTable)
+wavelet.CR$Value[2:length(wavelet.CR$Value)]=wavelet.CR$Value[2:length(wavelet.CR$Value)]+wavelet.CR$Value[1]
+row.names(wavelet.CR)=sort(unique(CR$Species))
+
+wavelet.CR.value=setNames(wavelet.CR$Value,row.names(wavelet.CR)) #save tip-values for each species' traits from LME models
+wavelet.IR.value=setNames(wavelet.IR$Value,row.names(wavelet.IR))
+period.CR.value=setNames(period.CR$Value,row.names(period.CR))
+period.IR.value=setNames(period.IR$Value,row.names(period.IR))
+velocity.EX.value=setNames(velocity.EX$Value,row.names(velocity.EX))
+
+wavelet.CR.SE=setNames(wavelet.CR$Std.Error,row.names(wavelet.CR)) #save standard error of each species' traits from LME models
+wavelet.IR.SE=setNames(wavelet.IR$Std.Error,row.names(wavelet.IR))
+period.CR.SE=setNames(period.CR$Std.Error,row.names(period.CR))
+period.IR.SE=setNames(period.IR$Std.Error,row.names(period.IR))
+velocity.EX.SE=setNames(velocity.EX$Std.Error,row.names(velocity.EX))
+
+X_traits<-data.frame(wavelet.CR.value,period.CR.value,wavelet.IR.value,period.IR.value,velocity.EX.value,wavelet.CR.SE,wavelet.IR.SE,period.CR.SE, period.IR.SE, velocity.EX.SE)
+row.names(X_traits)<-row.names(period.CR)
+X_traits$Species<-rownames(X_traits)
+
+CR3<-data.frame(period.CR.value,wavelet.CR.value)
+colnames(CR3)<-c("Dominant_Period","cf_wavelet")
+CR3$Species<-rownames(CR3)
+IR3<-data.frame(period.IR.value,wavelet.IR.value)
+colnames(IR3)<-c("Dominant_Period","cf_wavelet")
+IR3$Species<-rownames(IR3)
+
+combined<-combine(CR3,IR3)
+```
+
+```{r, echo=TRUE, error=FALSE, warning=FALSE, message=FALSE, results='hide'}
+set.seed(9)
+intra <- intra_phylm(period.CR.value ~ period.IR.value, 
+                     phy = pruned, data = X_traits, Vx = "period.IR.SE", Vy = "period.CR.SE", n.intra = 10000)
+```
+
+```{r, echo=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+summary(intra)
+
+pglsModel <- gls(period.CR.value  ~ period.IR.value , correlation = corBrownian(phy = pruned, form = ~Species), data = X_traits, method = "ML")
+summary(pglsModel)
+
+```
+
+```{r, echo=TRUE, error=FALSE, warning=FALSE, message=FALSE, results='hide'}
+set.seed(9)
+intra <- intra_phylm(wavelet.CR.value ~ wavelet.IR.value, 
+                     phy = pruned, data = X_traits, Vx = "wavelet.IR.SE", Vy = "wavelet.CR.SE", n.intra = 10000)
+```
+
+```{r, echo=TRUE, error=FALSE, warning=FALSE, message=FALSE}
+summary(intra)
+
+pglsModel <- gls(wavelet.CR.value  ~ wavelet.IR.value , correlation = corBrownian(phy = pruned, form = ~Species), data = X_traits, method = "ML")
+summary(pglsModel)
+
+```
+
+## Behavioral phenospace analyses
+
+This code section calculates the phenotypic disparity of collective-level behavior and individual-level behavior. We perform a bootstrap analysis to compare the differences between the estimated disparity values of the two levels against the null expectation of a difference of zero.      
+```{r, echo=TRUE, error=FALSE, warning=FALSE}
+
+CR3<-data.frame(period.CR.value,wavelet.CR.value)
+colnames(CR3)<-c("Dominant_Period","cf_wavelet")
+CR3$Species<-rownames(CR3)
+IR3<-data.frame(period.IR.value,wavelet.IR.value)
+colnames(IR3)<-c("Dominant_Period","cf_wavelet")
+IR3$Species<-rownames(IR3)
+
+combined<-combine(CR3,IR3)
+
+X<-subset(combined, select = -c(Species, source))
+
+tier<-custom.subsets(X, list(Colony = c(1:22), Individual = c(23:44)))
+set.seed(9)
+tier_bootstrap<-boot.matrix(tier,bootstrap=10000) # acquire bootstrap dataset using the dispRity package 
+
+tier_disparity<-dispRity(tier_bootstrap,metric=c(sum,variances)) # compute disparity metric for collective-level and individual-level behavior in the bootstrapped dataset  
+
+ind_boot_disparity<-as.data.frame(tier_disparity$disparity$Individual[2])
+ind_boot_disparity<-t(ind_boot_disparity)
+colony_boot_disparity<-as.data.frame(tier_disparity$disparity$Colony[2])
+colony_boot_disparity<-t(colony_boot_disparity)
+ind_boot_disparity<-as.data.frame(ind_boot_disparity)
+colony_boot_disparity<-as.data.frame(colony_boot_disparity)
+
+Individual<-ind_boot_disparity$V1
+Colony<-colony_boot_disparity$V1
+boot_disparity<-combine(Colony,Individual)
+boot_disparity$source = paste0(boot_disparity$source,"-level")
+
+colnames(boot_disparity)[1]<-c("Sum_of_variances")
+  
+disparity_diff<-boot_disparity$Sum_of_variances[1:10000]-boot_disparity$Sum_of_variances[10001:20000] # compute differences in disparity from the bootstrapped data
+
+sum(0>disparity_diff) / length(disparity_diff) # compare observed differences against the null expectation of a difference of 0. 
+```
+
+## Rate of evolution
+
+This code section performs our evolutionary rate analyses. We perform bootstrap analyses that compare the differences between the estimated rates of evolution for analogous pairs of collective-level and individual-level traits against the null expectation of a rate difference of zero.The for loop at the beginning of this code section can be un-commented to acquire the 10,000 rate estimate samples for each trait. However, it is also possible to load the previously completed bootstrap rate data to avoid re-running the computationally time-consuming bootstrapping procedure.      
+```{r, echo=TRUE, error=FALSE, warning=FALSE}
+df2<-NULL
+set.seed(9)
+# for (i in 1:10){
+# 
+#   CR<-as.data.frame(CR)
+#   IR<-as.data.frame(IR)
+#   EX<-as.data.frame(EX)
+#   CR.sample<-sample_n(CR, nrow(CR), replace = TRUE)
+#   CR.sample<-as.data.frame(CR.sample)
+#   IR.sample<-sample_n(IR, nrow(IR), replace = TRUE)
+#   IR.sample<-as.data.frame(IR.sample)
+#   EX.sample<-sample_n(EX, nrow(EX), replace = TRUE)
+#   EX.sample<-as.data.frame(EX.sample)
+#   m.period.CR <- lme(Dominant_Period ~ Species, random=~1|Colony, data=CR.sample)
+#   m.wavelet.CR <- lme(cf_wavelet ~ Species, random=~1|Colony, data=CR.sample)
+#   m.period.IR <- lme(Dominant_Period ~ Species, random=~1|Colony, data=IR.sample)
+#   m.wavelet.IR <- lme(cf_wavelet ~ Species, random=~1|Colony, data=IR.sample)
+#   m.velocity.EX <- lme(Mean_moving_velocity  ~ Species, random=~1|Colony, data=EX.sample)
+# 
+#   period.CR=data.frame(summary(m.period.CR)$tTable)
+#   period.CR$Value[2:length(period.CR$Value)]=period.CR$Value[2:length(period.CR$Value)]+period.CR$Value[1]
+#   row.names(period.CR)=sort(unique(CR.sample$Species))
+# 
+#   wavelet.CR=data.frame(summary(m.wavelet.CR)$tTable)
+#   wavelet.CR$Value[2:length(wavelet.CR$Value)]=wavelet.CR$Value[2:length(wavelet.CR$Value)]+wavelet.CR$Value[1]
+#   row.names(wavelet.CR)=sort(unique(CR.sample$Species))
+# 
+#   period.IR=data.frame(summary(m.period.IR)$tTable)
+#   period.IR$Value[2:length(period.IR$Value)]=period.IR$Value[2:length(period.IR$Value)]+period.IR$Value[1]
+#   row.names(period.IR)=sort(unique(IR.sample$Species))
+# 
+#   wavelet.IR=data.frame(summary(m.wavelet.IR)$tTable)
+#   wavelet.IR$Value[2:length(wavelet.IR$Value)]=wavelet.IR$Value[2:length(wavelet.IR$Value)]+wavelet.IR$Value[1]
+#   row.names(wavelet.IR)=sort(unique(IR.sample$Species))
+# 
+#   velocity.EX=data.frame(summary(m.velocity.EX)$tTable)
+#   velocity.EX$Value[2:length(velocity.EX$Value)]=velocity.EX$Value[2:length(velocity.EX$Value)]+velocity.EX$Value[1]
+#   row.names(velocity.EX)=sort(unique(EX.sample$Species))
+# 
+#   wavelet.CR.value=setNames(wavelet.CR$Value,row.names(wavelet.CR))/mean(wavelet.CR$Value) # standardize the behavioral metrics
+#   wavelet.IR.value=setNames(wavelet.IR$Value,row.names(wavelet.IR))/mean(wavelet.IR$Value)
+#   period.CR.value=setNames(period.CR$Value,row.names(period.CR))/mean(period.CR$Value)
+#   period.IR.value=setNames(period.IR$Value,row.names(period.IR))/mean(period.IR$Value)
+#   velocity.EX.value=setNames(velocity.EX$Value,row.names(velocity.EX))/mean(velocity.EX$Value)
+# 
+# 
+#   nc_p<-as.data.frame(unique(CR.sample$Species))
+#   row.names(nc_p)<-nc_p$`unique(CR.sample$Species)`
+#   nc <- name.check(t, nc_p)
+#   pruned.CR <- drop.tip(t, nc$tree_not_data)
+#   pruned.CR<-force.ultrametric(pruned.CR)
+# 
+# 
+#   nc_p<-as.data.frame(unique(IR.sample$Species))
+#   row.names(nc_p)<-nc_p$`unique(IR.sample$Species)`
+#   nc <- name.check(t, nc_p)
+#   pruned.IR <- drop.tip(t, nc$tree_not_data)
+#   pruned.RR<-force.ultrametric(pruned.IR)
+# 
+# 
+#   nc_p<-as.data.frame(unique(EX.sample$Species))
+#   row.names(nc_p)<-nc_p$`unique(EX.sample$Species)`
+#   nc <- name.check(t, nc_p)
+#   pruned.EX <- drop.tip(t, nc$tree_not_data)
+#   pruned.EX<-force.ultrametric(pruned.EX)
+# 
+# 
+#   # fit BM models of evolution for each trait and extract the rate parameter from each model
+# 
+#   fc.wavelet.CR=fitContinuous(pruned.CR,dat=wavelet.CR.value,model="BM")
+#   fc.wavelet.CR$opt
+# 
+#   fc.wavelet.IR=fitContinuous(pruned.IR,dat=wavelet.IR.value,model="BM")
+#   fc.wavelet.IR$opt
+# 
+#   fc.period.CR=fitContinuous(pruned.CR,dat=period.CR.value,model="BM")
+#   fc.period.CR$opt
+# 
+#   fc.period.IR=fitContinuous(pruned.IR,dat=period.IR.value,model="BM")
+#   fc.period.IR$opt
+# 
+#   fc.velocity.EX=fitContinuous(pruned.EX,dat=velocity.EX.value,model="BM")
+#   fc.velocity.EX$opt
+# 
+#   df3<-data.frame(fc.wavelet.CR$opt[1],fc.wavelet.IR$opt[1],fc.period.CR$opt[1],fc.period.IR$opt[1],0,fc.velocity.EX$opt[1])
+#   colnames(df3)<-c("sigsq.wavelet.CR","sigsq.wavelet.IR", "sigsq.period.CR", "sigsq.period.IR", "sigsq.velocity.placeholder","sigsq.velocity.EX")
+#   df3<-t(df3)
+#   df3<-data.frame(df3)
+#   colnames(df3)<-c("sigsq")
+#   df3$sigsq.tier<-rownames(df3)
+#   df3$source<-c("Colony", "Individual","Colony", "Individual", "Colony", "Individual")
+#   df3$trait<-c("Rhythmicity", "Rhythmicity","Period", "Period", "Velocity", "Velocity")
+# 
+#   df2<-rbind(df2,df3)
+# 
+# }
+
+df2<-read.csv("rates_resample.csv", header = TRUE) # load previously completed bootstrap rate data to avoid re-running the bootstrapping
+
+x<-subset(df2, sigsq.tier == "sigsq.wavelet.CR")
+x2<-subset(df2, sigsq.tier == "sigsq.wavelet.IR")
+wavelet_r_diff<-x$sigsq-x2$sigsq # compute differences in the evolutionary rates of collective-level and individual-level rhythmicity from the bootstrapped data
+x<-subset(df2, sigsq.tier == "sigsq.period.CR")
+x2<-subset(df2, sigsq.tier == "sigsq.period.IR")
+period_r_diff<-x$sigsq-x2$sigsq  # compute differences in the evolutionary rates of collective-level and individual-level period from the bootstrapped data
+
+sum(0>period_r_diff) / length(period_r_diff) # compare observed rate differences against the null expectation of a difference of 0. 
+sum(0>wavelet_r_diff) / length(wavelet_r_diff)
+```
+
+## Disassembly analyses
+
+This code section loads the collective-level and individual-level time series from our disassembly experiment and compares the collective-level traits of each colony to the distribution of the individual-level traits from all of the measured individuals from the corresponding colony. 
+```{r, echo=TRUE, error=FALSE, warning=FALSE}
+MT01<-subset(IR_deconstruct, Colony == 'MT01') # Colony MT01: Temnothorax rudis 
+MT01_colony<-subset(CR_deconstruct, Colony == 'MT01')
+BFLT4<-subset(IR_deconstruct, Colony == 'BFLT4')
+BFLT4_colony<-subset(CR_deconstruct, Colony == 'BFLT4') # Colony BFLT4: Temnothorax obturator
+PPL2<-subset(IR_deconstruct, Colony == 'PPL2')
+PPL2_colony<-subset(CR_deconstruct, Colony == 'PPL2') # Colony PPL2: Leptothorax crassipilis
+
+sum(MT01$cf_wavelet>MT01_colony$cf_wavelet) / length(MT01$cf_wavelet)
+sum(MT01$Dominant_Period>MT01_colony$Dominant_Period) / length(MT01$Dominant_Period)
+sum(BFLT4$cf_wavelet>BFLT4_colony$cf_wavelet) / length(BFLT4$cf_wavelet)
+sum(BFLT4$Dominant_Period>BFLT4_colony$Dominant_Period) / length(BFLT4$Dominant_Period)
+sum(PPL2$cf_wavelet>PPL2_colony$cf_wavelet) / length(PPL2$cf_wavelet)
+sum(PPL2$Dominant_Period>PPL2_colony$Dominant_Period) / length(PPL2$Dominant_Period)
+```
+
+## Supplementary colony size analysis
+
+This code section contains our supplementary analyses of the effect of colony size on the two collective-level traits. We test for correlations between the two traits and colony size for all colonies separately for four species. These four species had the greatest number of colonies in our study. We also performed PGLS analyses using all 22 species in the study. The tip-values for the PGLS were obtained using LME models.      
+```{r, echo=TRUE, error=FALSE, warning=FALSE}
+CR <- read.csv("Table_S1_collective_activity.csv", header=T)
+
+m1 <- lme(Dominant_Period ~ Species, random=~1|Colony, data=CR) # LME models for PGLS tip-values.  
+period.CR=data.frame(summary(m1)$tTable)
+period.CR$Value[2:length(period.CR$Value)]=period.CR$Value[2:length(period.CR$Value)]+period.CR$Value[1]
+row.names(period.CR)=sort(unique(CR$Species))
+
+m1 <- lme(cf_wavelet ~ Species, random=~1|Colony, data=CR)
+wavelet.CR=data.frame(summary(m1)$tTable)
+wavelet.CR$Value[2:length(wavelet.CR$Value)]=wavelet.CR$Value[2:length(wavelet.CR$Value)]+wavelet.CR$Value[1]
+row.names(wavelet.CR)=sort(unique(CR$Species))
+
+m1 <- lme(No_of_ants ~ Species, random=~1|Colony, data=CR)
+anova(m1)
+
+size.CR=data.frame(summary(m1)$tTable)
+size.CR$Value[2:length(size.CR$Value)]=size.CR$Value[2:length(size.CR$Value)]+size.CR$Value[1]
+row.names(size.CR)=sort(unique(CR$Species))
+
+
+wavelet.CR.value=setNames(wavelet.CR$Value,row.names(wavelet.CR))
+period.CR.value=setNames(period.CR$Value,row.names(period.CR))
+size.CR.value=setNames(size.CR$Value,row.names(size.CR))
+
+CR3<-data.frame(period.CR.value,wavelet.CR.value, size.CR.value)
+colnames(CR3)<-c("Dominant_Period","cf_wavelet", "No_of_ants")
+CR3$Species<-rownames(CR3)
+
+
+trudis<-subset(CR, Species == "Temnothorax_rudis") # detailed four-species analysis  
+tcurvispinosus<-subset(CR, Species == "Temnothorax_curvispinosus")
+trugatulus<-subset(CR, Species == "Temnothorax_rugatulus")
+tambiguus<-subset(CR, Species == "Temnothorax_ambiguus")
+
+m1 <- lme(Dominant_Period ~ No_of_ants, random=~1|Colony, data=trudis)
+m2 <- lme(Dominant_Period ~ No_of_ants, random=~1|Colony, data=tcurvispinosus)
+m3 <- lme(Dominant_Period ~ No_of_ants, random=~1|Colony, data=trugatulus)
+m4 <- lme(Dominant_Period ~ No_of_ants, random=~1|Colony, data=tambiguus)
+
+summary(m1)
+summary(m2)
+summary(m3)
+summary(m4)
+
+m5 <- lme(cf_wavelet ~ No_of_ants, random=~1|Colony, data=trudis)
+m6 <- lme(cf_wavelet ~ No_of_ants, random=~1|Colony, data=tcurvispinosus)
+m7 <- lme(cf_wavelet ~ No_of_ants, random=~1|Colony, data=trugatulus)
+m8 <- lme(cf_wavelet ~ No_of_ants, random=~1|Colony, data=tambiguus)
+
+summary(m5)
+summary(m6)
+summary(m7)
+summary(m8)
+
+# PGLS analysis 
+pglsModel <- gls(Dominant_Period  ~ No_of_ants , correlation = corBrownian(phy = pruned, form = ~Species), data = CR3, method = "ML")
+summary(pglsModel)
+
+pglsModel <- gls(cf_wavelet ~ No_of_ants , correlation = corBrownian(phy = pruned, form = ~Species), data = CR3, method = "ML")
+summary(pglsModel)
+```
+
+## Small-nest analyses
+
+This code section contains our analyses of our small-nest experiment. We carry out the same analyses that were performed on the dataset from the main experiment: 1. Comparing rate estimates between colony-level and individual-level traits, 2. Comparing the phenotypic disparity between the multivariate colony-level and individual-level phenospaces, and 3. Conducting PGLS regression on analogous colony-level and individual-level trait pairs. 
+```{r, echo=TRUE, error=FALSE, warning=FALSE}
+
+# Rate analysis 
+
+# The full bootstrapping code below has been commented out since the saved output of this code can be loaded instead
+
+# CR <- read.csv("Table_S1_collective_activity.csv", header=T)
+# 
+# Tiny_2024 <- read.csv("Table_S12_Tiny_2024.csv", header=T)
+# 
+# #Tiny_2024 <- subset(Tiny_2024, Treatment == "No_larvae")  
+# Tiny_2024 <- subset(Tiny_2024, Treatment == "Larvae") 
+# 
+# 
+# CR9 <- CR[CR$Species %in% unique(Tiny_2024$Species), ]
+# 
+# CR9$Dominant_Period<-CR9$Dominant_Period_trim_10hrs
+# CR9$cf_wavelet<-CR9$cf_wavelet_trim_10hrs
+# 
+# df2<-NULL
+# set.seed(9)
+# for (i in 1:10000){
+#   
+#   CR<-as.data.frame(CR9)
+#   IR<-as.data.frame(Tiny_2024)
+#   CR.sample<-sample_n(CR, nrow(CR), replace = TRUE)
+#   CR.sample<-as.data.frame(CR.sample)
+#   IR.sample<-sample_n(IR, nrow(IR), replace = TRUE)
+#   IR.sample<-as.data.frame(IR.sample)
+#   m.period.CR <- lme(Dominant_Period ~ Species, random=~1|Colony, data=CR.sample)
+#   m.wavelet.CR <- lme(cf_wavelet ~ Species, random=~1|Colony, data=CR.sample)
+#   m.period.IR <- lm(Dominant_Period ~ Species, data=IR.sample)
+#   m.wavelet.IR <- lm(cf_wavelet ~ Species, data=IR.sample)
+#   
+#   period.CR=data.frame(summary(m.period.CR)$tTable)
+#   period.CR$Value[2:length(period.CR$Value)]=period.CR$Value[2:length(period.CR$Value)]+period.CR$Value[1]
+#   row.names(period.CR)=sort(unique(CR.sample$Species))
+#   
+#   wavelet.CR=data.frame(summary(m.wavelet.CR)$tTable)
+#   wavelet.CR$Value[2:length(wavelet.CR$Value)]=wavelet.CR$Value[2:length(wavelet.CR$Value)]+wavelet.CR$Value[1]
+#   row.names(wavelet.CR)=sort(unique(CR.sample$Species))
+#   
+#   period.IR=data.frame(summary(m.period.IR)$coefficients)
+#   period.IR$Estimate[2:length(period.IR$Estimate)]=period.IR$Estimate[2:length(period.IR$Estimate)]+period.IR$Estimate[1]
+#   row.names(period.IR)=sort(unique(IR.sample$Species))
+#   
+#   wavelet.IR=data.frame(summary(m.wavelet.IR)$coefficients)
+#   wavelet.IR$Estimate[2:length(wavelet.IR$Estimate)]=wavelet.IR$Estimate[2:length(wavelet.IR$Estimate)]+wavelet.IR$Estimate[1]
+#   row.names(wavelet.IR)=sort(unique(IR.sample$Species))
+#   
+#   
+# 
+#   
+#   wavelet.CR.value=setNames(wavelet.CR$Value,row.names(wavelet.CR))/mean(wavelet.CR$Value)
+#   wavelet.IR.value=setNames(wavelet.IR$Estimate,row.names(wavelet.IR))/mean(wavelet.IR$Estimate)
+#   period.CR.value=setNames(period.CR$Value,row.names(period.CR))/mean(period.CR$Value)
+#   period.IR.value=setNames(period.IR$Estimate,row.names(period.IR))/mean(period.IR$Estimate)
+#   
+#   
+#   nc_p<-as.data.frame(unique(CR.sample$Species))
+#   row.names(nc_p)<-nc_p$`unique(CR.sample$Species)`
+#   nc <- name.check(t, nc_p)
+#   pruned.CR <- drop.tip(t, nc$tree_not_data)
+#   pruned.CR<-force.ultrametric(pruned.CR)
+#   
+#   
+#   nc_p<-as.data.frame(unique(IR.sample$Species))
+#   row.names(nc_p)<-nc_p$`unique(IR.sample$Species)`
+#   nc <- name.check(t, nc_p)
+#   pruned.IR <- drop.tip(t, nc$tree_not_data)
+#   pruned.RR<-force.ultrametric(pruned.IR)
+#   
+#   
+#   
+#   fc.wavelet.CR=fitContinuous(pruned.CR,dat=wavelet.CR.value,model="BM")
+#   fc.wavelet.CR$opt
+#   
+#   fc.wavelet.IR=fitContinuous(pruned.IR,dat=wavelet.IR.value,model="BM")
+#   fc.wavelet.IR$opt
+#   
+#   fc.period.CR=fitContinuous(pruned.CR,dat=period.CR.value,model="BM")
+#   fc.period.CR$opt
+#   
+#   fc.period.IR=fitContinuous(pruned.IR,dat=period.IR.value,model="BM")
+#   fc.period.IR$opt
+#   
+#   
+#   df3<-data.frame(fc.wavelet.CR$opt[1],fc.wavelet.IR$opt[1],fc.period.CR$opt[1],fc.period.IR$opt[1])
+#   colnames(df3)<-c("sigsq.wavelet.CR","sigsq.wavelet.IR", "sigsq.period.CR", "sigsq.period.IR")
+#   df3<-t(df3)
+#   df3<-data.frame(df3)
+#   colnames(df3)<-c("sigsq")
+#   df3$sigsq.tier<-rownames(df3)
+#   df3$source<-c("Colony", "Individual","Colony", "Individual")
+#   df3$trait<-c("Rhythmicity", "Rhythmicity","Period", "Period")
+#   
+#   df2<-rbind(df2,df3)
+#   
+# }
+
+df2<-read.csv("rates_resample_small_nest_larvae.csv", header = TRUE) # load previously completed bootstrap rate data for the larvae treatment
+
+x<-subset(df2, sigsq.tier == "sigsq.wavelet.CR")
+x2<-subset(df2, sigsq.tier == "sigsq.wavelet.IR")
+wavelet_r_diff<-x$sigsq-x2$sigsq # compute differences in the evolutionary rates of collective-level and individual-level rhythmicity from the larvae treatment data
+x<-subset(df2, sigsq.tier == "sigsq.period.CR")
+x2<-subset(df2, sigsq.tier == "sigsq.period.IR")
+period_r_diff<-x$sigsq-x2$sigsq # compute differences in the evolutionary rates of collective-level and individual-level period from the larvae treatment data
+
+sum(0>period_r_diff) / length(period_r_diff) # compare observed rate differences against the null expectation of a difference of 0.
+sum(0>wavelet_r_diff) / length(wavelet_r_diff)
+
+df2<-read.csv("rates_resample_small_nest_no_larvae.csv", header = TRUE)
+
+x<-subset(df2, sigsq.tier == "sigsq.wavelet.CR")
+x2<-subset(df2, sigsq.tier == "sigsq.wavelet.IR")
+wavelet_r_diff<-x$sigsq-x2$sigsq # compute differences in the evolutionary rates of collective-level and individual-level rhythmicity from the no larvae treatment data
+x<-subset(df2, sigsq.tier == "sigsq.period.CR")
+x2<-subset(df2, sigsq.tier == "sigsq.period.IR")
+period_r_diff<-x$sigsq-x2$sigsq # compute differences in the evolutionary rates of collective-level and individual-level period from the no larvae treatment data
+
+sum(0>period_r_diff) / length(period_r_diff)
+sum(0>wavelet_r_diff) / length(wavelet_r_diff)
+
+# Disparity analysis 
+
+CR_2024 <- read.csv("Table_S11_collective_activity_2024.csv", header=T)
+CR.2024.values<-select(CR_2024, Dominant_Period, cf_wavelet)
+rownames(CR.2024.values)<-CR_2024$Species
+
+Tiny_2024 <- read.csv("Table_S12_Tiny_2024.csv", header=T)
+
+Tiny_2024 <- subset(Tiny_2024, Treatment == "No_larvae")
+
+m1 <- lm(Dominant_Period ~ Species, data=Tiny_2024)
+period.Tiny=data.frame(summary(m1)$coefficients)
+period.Tiny$Estimate[2:length(period.Tiny$Estimate)]=period.Tiny$Estimate[2:length(period.Tiny$Estimate)]+period.Tiny$Estimate[1]
+row.names(period.Tiny)=sort(unique(Tiny_2024$Species))
+m1 <- lm(cf_wavelet ~ Species, data=Tiny_2024)
+wavelet.Tiny=data.frame(summary(m1)$coefficients)
+wavelet.Tiny$Estimate[2:length(wavelet.Tiny$Estimate)]=wavelet.Tiny$Estimate[2:length(wavelet.Tiny$Estimate)]+wavelet.Tiny$Estimate[1]
+row.names(wavelet.Tiny)=sort(unique(Tiny_2024$Species))
+wavelet.Tiny.value=setNames(wavelet.Tiny$Estimate,row.names(wavelet.Tiny))
+period.Tiny.value=setNames(period.Tiny$Estimate,row.names(period.Tiny))
+IR_Tiny<-data.frame(period.Tiny.value,wavelet.Tiny.value)
+colnames(IR_Tiny)<-c("Dominant_Period","cf_wavelet")
+
+
+Tiny_2024 <- read.csv("Table_S12_Tiny_2024.csv", header=T)
+
+Tiny_2024 <- subset(Tiny_2024, Treatment == "Larvae")
+
+m1 <- lm(Dominant_Period ~ Species, data=Tiny_2024)
+period.Tiny=data.frame(summary(m1)$coefficients)
+period.Tiny$Estimate[2:length(period.Tiny$Estimate)]=period.Tiny$Estimate[2:length(period.Tiny$Estimate)]+period.Tiny$Estimate[1]
+row.names(period.Tiny)=sort(unique(Tiny_2024$Species))
+m1 <- lm(cf_wavelet ~ Species, data=Tiny_2024)
+wavelet.Tiny=data.frame(summary(m1)$coefficients)
+wavelet.Tiny$Estimate[2:length(wavelet.Tiny$Estimate)]=wavelet.Tiny$Estimate[2:length(wavelet.Tiny$Estimate)]+wavelet.Tiny$Estimate[1]
+row.names(wavelet.Tiny)=sort(unique(Tiny_2024$Species))
+wavelet.Tiny.value=setNames(wavelet.Tiny$Estimate,row.names(wavelet.Tiny))
+period.Tiny.value=setNames(period.Tiny$Estimate,row.names(period.Tiny))
+IR_Tiny_Larvae<-data.frame(period.Tiny.value,wavelet.Tiny.value)
+colnames(IR_Tiny_Larvae)<-c("Dominant_Period","cf_wavelet")
+
+combined<-combine(CR.2024.values,IR_Tiny,IR_Tiny_Larvae)
+
+X<-subset(combined, select = -c(source)) 
+
+tier<-custom.subsets(X, list(Colony = c(1:9), Individual = c(19:27))) # Larvae treatment
+set.seed(9)
+tier_bootstrap<-boot.matrix(tier,bootstrap=10000) # acquire bootstrap dataset using the dispRity package 
+
+tier_disparity<-dispRity(tier_bootstrap,metric=c(sum,variances)) # compute disparity metric for collective-level and individual-level behavior in the bootstrapped dataset  
+
+ind_boot_disparity<-as.data.frame(tier_disparity$disparity$Individual[2])
+ind_boot_disparity<-t(ind_boot_disparity)
+colony_boot_disparity<-as.data.frame(tier_disparity$disparity$Colony[2])
+colony_boot_disparity<-t(colony_boot_disparity)
+ind_boot_disparity<-as.data.frame(ind_boot_disparity)
+colony_boot_disparity<-as.data.frame(colony_boot_disparity)
+
+Individual<-ind_boot_disparity$V1
+Colony<-colony_boot_disparity$V1
+boot_disparity<-combine(Colony,Individual)
+boot_disparity$source = paste0(boot_disparity$source,"-level")
+
+colnames(boot_disparity)[1]<-c("Sum_of_variances")
+
+disparity_diff<-boot_disparity$Sum_of_variances[1:10000]-boot_disparity$Sum_of_variances[10001:20000] # compute differences in disparity from the bootstrapped data
+
+sum(0>disparity_diff) / length(disparity_diff) # compare observed differences from the Larvae treatment against the null expectation of a difference of 0. 
+
+tier<-custom.subsets(X, list(Colony = c(1:9), Individual = c(10:18))) # No-larvae treatment
+set.seed(9)
+tier_bootstrap<-boot.matrix(tier,bootstrap=10000) # acquire bootstrap dataset using the dispRity package
+
+tier_disparity<-dispRity(tier_bootstrap,metric=c(sum,variances))# compute disparity metric for collective-level and individual-level behavior in the bootstrapped dataset  
+
+ind_boot_disparity<-as.data.frame(tier_disparity$disparity$Individual[2])
+ind_boot_disparity<-t(ind_boot_disparity)
+colony_boot_disparity<-as.data.frame(tier_disparity$disparity$Colony[2])
+colony_boot_disparity<-t(colony_boot_disparity)
+ind_boot_disparity<-as.data.frame(ind_boot_disparity)
+colony_boot_disparity<-as.data.frame(colony_boot_disparity)
+
+Individual<-ind_boot_disparity$V1
+Colony<-colony_boot_disparity$V1
+boot_disparity<-combine(Colony,Individual)
+boot_disparity$source = paste0(boot_disparity$source,"-level")
+
+colnames(boot_disparity)[1]<-c("Sum_of_variances")
+
+disparity_diff<-boot_disparity$Sum_of_variances[1:10000]-boot_disparity$Sum_of_variances[10001:20000] # compute differences in disparity from the bootstrapped data
+
+sum(0>disparity_diff) / length(disparity_diff) # compare observed differences from the no-larvae treatment against the null expectation of a difference of 0. 
+
+# PGLS analyses
+
+Tiny_2024 <- read.csv("Table_S12_Tiny_2024.csv", header=T)
+Tiny_2024 <- subset(Tiny_2024, Treatment == "Larvae")
+
+m1 <- lm(Dominant_Period ~ Species, data=Tiny_2024)
+
+period.Tiny=data.frame(summary(m1)$coefficients)
+period.Tiny$Estimate[2:length(period.Tiny$Estimate)]=period.Tiny$Estimate[2:length(period.Tiny$Estimate)]+period.Tiny$Estimate[1]
+row.names(period.Tiny)=sort(unique(Tiny_2024$Species))
+
+m1 <- lm(cf_wavelet ~ Species, data=Tiny_2024)
+
+wavelet.Tiny=data.frame(summary(m1)$coefficients)
+wavelet.Tiny$Estimate[2:length(wavelet.Tiny$Estimate)]=wavelet.Tiny$Estimate[2:length(wavelet.Tiny$Estimate)]+wavelet.Tiny$Estimate[1]
+row.names(wavelet.Tiny)=sort(unique(Tiny_2024$Species))
+
+wavelet.Tiny.value=setNames(wavelet.Tiny$Estimate,row.names(wavelet.Tiny))
+period.Tiny.value=setNames(period.Tiny$Estimate,row.names(period.Tiny))
+IR_Tiny<-data.frame(period.Tiny.value,wavelet.Tiny.value)
+colnames(IR_Tiny)<-c("Dominant_Period","cf_wavelet")
+
+merged <- merge(CR.2024.values, IR_Tiny, by = 'row.names', all = FALSE) 
+
+colnames(merged)<-c("Species","Dominant_Period_2024","cf_wavelet_2024","Dominant_Period_Tiny","cf_wavelet_Tiny")
+rownames(merged)<-merged$Species
+
+nc <- name.check(t, merged)
+pruned.Tiny <- drop.tip(t, nc$tree_not_data)
+pruned.Tiny<-force.ultrametric(pruned.Tiny)
+
+pglsModel <- gls(Dominant_Period_2024 ~ Dominant_Period_Tiny  , correlation = corBrownian(phy = pruned.Tiny, form = ~Species), data = merged, method = "ML")
+summary(pglsModel) # PGLS analysis for period - larvae treatment
+
+pglsModel <- gls(cf_wavelet_2024 ~ cf_wavelet_Tiny  , correlation = corBrownian(phy = pruned.Tiny, form = ~Species), data = merged, method = "ML")
+summary(pglsModel) # PGLS analysis for rhythmicity - larvae treatment
+
+
+Tiny_2024 <- read.csv("Table_S12_Tiny_2024.csv", header=T)
+Tiny_2024 <- subset(Tiny_2024, Treatment == "No_larvae")
+
+m1 <- lm(Dominant_Period ~ Species, data=Tiny_2024)
+
+period.Tiny=data.frame(summary(m1)$coefficients)
+period.Tiny$Estimate[2:length(period.Tiny$Estimate)]=period.Tiny$Estimate[2:length(period.Tiny$Estimate)]+period.Tiny$Estimate[1]
+row.names(period.Tiny)=sort(unique(Tiny_2024$Species))
+
+m1 <- lm(cf_wavelet ~ Species, data=Tiny_2024)
+
+wavelet.Tiny=data.frame(summary(m1)$coefficients)
+wavelet.Tiny$Estimate[2:length(wavelet.Tiny$Estimate)]=wavelet.Tiny$Estimate[2:length(wavelet.Tiny$Estimate)]+wavelet.Tiny$Estimate[1]
+row.names(wavelet.Tiny)=sort(unique(Tiny_2024$Species))
+
+wavelet.Tiny.value=setNames(wavelet.Tiny$Estimate,row.names(wavelet.Tiny))
+period.Tiny.value=setNames(period.Tiny$Estimate,row.names(period.Tiny))
+IR_Tiny<-data.frame(period.Tiny.value,wavelet.Tiny.value)
+colnames(IR_Tiny)<-c("Dominant_Period","cf_wavelet")
+
+merged <- merge(CR.2024.values, IR_Tiny, by = 'row.names', all = FALSE) 
+
+colnames(merged)<-c("Species","Dominant_Period_2024","cf_wavelet_2024","Dominant_Period_Tiny","cf_wavelet_Tiny")
+rownames(merged)<-merged$Species
+
+nc <- name.check(t, merged)
+pruned.Tiny <- drop.tip(t, nc$tree_not_data)
+pruned.Tiny<-force.ultrametric(pruned.Tiny)
+
+pglsModel <- gls(Dominant_Period_2024 ~ Dominant_Period_Tiny  , correlation = corBrownian(phy = pruned.Tiny, form = ~Species), data = merged, method = "ML")
+summary(pglsModel) # PGLS analysis for period - no-larvae treatment
+
+pglsModel <- gls(cf_wavelet_2024 ~ cf_wavelet_Tiny  , correlation = corBrownian(phy = pruned.Tiny, form = ~Species), data = merged, method = "ML")
+summary(pglsModel) # PGLS analysis for rhythmicity - no-larvae treatment
+
+
+```
+## Locality analysis
+
+This code section contains our supplementary analyses that shows how species collected from the same locality can differ significantly in their collective rhythm traits. 
+```{r, echo=TRUE, error=FALSE, warning=FALSE}
+CR <- read.csv("Table_S1_collective_activity.csv", header=T)
+
+CR <- CR[CR$Origin %in% c("UC_James_San_Jacinto_Mountain_Reserve_Riverside_County_CA"), ] # Assess species collected from the San Jacinto Mountains
+
+CR2 <- CR %>%
+  group_by(Colony, Species) %>% 
+  summarise_each(funs(mean))
+
+
+m1 <- lme(Dominant_Period ~ Species, random=~1|Colony, data=CR) # Test for differences in colony-level period among species from the San Jacinto Mountains
+anova(m1)
+
+m1 <- lme(cf_wavelet ~ Species, random=~1|Colony, data=CR) # Test for differences in colony-level rhythmicity among species from the San Jacinto Mountains
+anova(m1)
+
+CR <- read.csv("Table_S1_collective_activity.csv", header=T)
+
+CR <- CR[CR$Origin %in% c("Pinal_Mountains_AZ"), ] # Assess species collected from the Pinal Mountains
+
+CR2 <- CR %>%
+  group_by(Colony, Species) %>% 
+  summarise_each(funs(mean))
+
+m1 <- lme(Dominant_Period ~ Species, random=~1|Colony, data=CR) # Test for differences in colony-level period among species from the Pinal Mountains
+anova(m1)
+
+m1 <- lme(cf_wavelet ~ Species, random=~1|Colony, data=CR) # Test for differences in colony-level rhythmicity among species from the Pinal Mountains
+anova(m1)
+
+```
